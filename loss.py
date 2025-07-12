@@ -19,24 +19,23 @@ class MaxProbExtractor(nn.Module):
 
     def forward(self, output: torch.Tensor):
         """Output must be of the shape [batch, -1, 5 + num_cls]"""
-        # get values necessary for transformation
-        assert output.size(-1) == (5 + self.config.n_classes)
+        """YOLOv8 outputs [batch, 4 + num_cls, -1] actually"""
+        """https://github.com/ultralytics/ultralytics/issues/828"""
+        
+        assert output.size(1) == (4 + self.config.n_classes)
+        
+        output = output.permute(0, 2, 1)
+        class_confs = output[..., 4:]
 
-        class_confs = output[:, :, 5 : 5 + self.config.n_classes]  # [batch, -1, n_classes]
-        objectness_score = output[:, :, 4]  # [batch, -1, 5 + num_cls] -> [batch, -1], no need to run sigmoid here
-
+        #if self.config.objective_class_id is not None:
+        #    class_confs = class_confs[..., self.config.objective_class_id]
         if self.config.objective_class_id is not None:
-            # norm probs for object classes to [0, 1]
-            class_confs = torch.nn.Softmax(dim=2)(class_confs)
-            # only select the conf score for the objective class
-            class_confs = class_confs[:, :, self.config.objective_class_id]
+            class_confs = class_confs[..., 2] #try for MS COCO 'car'
         else:
-            # get class with highest conf for each box if objective_class_id is None
-            class_confs = torch.max(class_confs, dim=2)[0]  # [batch, -1, 4] -> [batch, -1]
+            class_confs, _ = class_confs.max(dim=-1)
 
-        confs_if_object = self.config.loss_target(objectness_score, class_confs)
-        max_conf, _ = torch.max(confs_if_object, dim=1)
-        return max_conf
+        max_conf, _ = class_confs.max(dim=1)
+        return max_conf 
 
 
 class SaliencyLoss(nn.Module):
