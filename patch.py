@@ -291,7 +291,10 @@ class PatchTransformer(nn.Module):
         self, adv_patch, lab_batch, model_in_sz, use_mul_add_gau=True, do_transforms=True, do_rotate=True, rand_loc=True
     ):
 
-        # add gaussian noise to reduce contrast with a stohastic process
+        # add gaussian noise to reduce contrast with a stohastic process -> from shrestha
+        # shrestha patch printability cannot be confirmed
+        # lanjut metode thys dkk.
+        """
         p_c, p_h, p_w = adv_patch.shape
         if use_mul_add_gau:
             mul_gau = torch.normal(
@@ -302,6 +305,7 @@ class PatchTransformer(nn.Module):
             )
             add_gau = torch.normal(0, 0.001, (p_c, p_h, p_w), device=self.dev)
             adv_patch = adv_patch * mul_gau + add_gau
+        """
         adv_patch = self.medianpooler(adv_patch.unsqueeze(0))
         m_h, m_w = model_in_sz
         # Determine size of padding
@@ -335,7 +339,7 @@ class PatchTransformer(nn.Module):
 
         # Where the label class_id is 1 we don't want a patch (padding) --> fill mask with zero's
         cls_ids = lab_batch[..., 0].unsqueeze(-1)  # equiv to torch.narrow(lab_batch, 2, 0, 1)
-        cls_mask = cls_ids.expand(-1, -1, p_c)
+        cls_mask = cls_ids.expand(-1, -1, 3)
         cls_mask = cls_mask.unsqueeze(-1)
         cls_mask = cls_mask.expand(-1, -1, -1, adv_batch.size(3))
         cls_mask = cls_mask.unsqueeze(-1)
