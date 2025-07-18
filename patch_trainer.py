@@ -131,17 +131,6 @@ class PatchTrainer:
         if self.cfg.debug_mode:
             for img_dir in ["train_patch_applied_imgs", "val_clean_imgs", "val_patch_applied_imgs"]:
                 os.makedirs(os.path.join(self.cfg.log_dir, img_dir), exist_ok=True)
-
-        #threat model
-        loss_target = self.cfg.loss_target
-        if loss_target == "obj":
-            self.cfg.loss_target = lambda obj, cls: obj
-        elif loss_target == "cls":
-            self.cfg.loss_target = lambda obj, cls: cls
-        elif loss_target in {"obj * cls", "obj*cls"}:
-            self.cfg.loss_target = lambda obj, cls: obj * cls
-        else:
-            raise NotImplementedError(f"Loss target {loss_target} not been implemented")
         
         print(self.cfg.patch_src)
         #random patch or from image
@@ -202,17 +191,17 @@ class PatchTrainer:
                     with autocast() if self.cfg.use_amp else nullcontext():
                         output = self.model(p_img_batch)[0]
                         max_prob = self.prob_extractor(output)
-                        sal = self.sal_loss(adv_patch) if self.cfg.sal_mult != 0 else zero_tensor
+                        #sal = self.sal_loss(adv_patch) if self.cfg.sal_mult != 0 else zero_tensor
                         nps = self.nps_loss(adv_patch) if self.cfg.nps_mult != 0 else zero_tensor
                         tv = self.tv_loss(adv_patch) if self.cfg.tv_mult != 0 else zero_tensor
 
                     det_loss = torch.mean(max_prob)
                     #det_loss = output[..., 4].mean() -> this here is only valid on YOLOv5
-                    sal_loss = sal * self.cfg.sal_mult
+                    #sal_loss = sal * self.cfg.sal_mult
                     nps_loss = nps * self.cfg.nps_mult
                     tv_loss = torch.max(tv * self.cfg.tv_mult, min_tv_loss)
                     
-                    loss = det_loss + tv_loss + nps_loss + sal_loss
+                    loss = det_loss + tv_loss + nps_loss #+ sal_loss
                     #print(torch.mean(max_prob), det_loss, sal_loss, tv_loss)
                     ep_loss += loss
 
@@ -231,14 +220,14 @@ class PatchTrainer:
                         iteration = self.epoch_length * epoch + i_batch
                         self.writer.add_scalar("total_loss", loss.detach().cpu().numpy(), iteration)
                         self.writer.add_scalar("loss/det_loss", det_loss.detach().cpu().numpy(), iteration)
-                        self.writer.add_scalar("loss/sal_loss", sal_loss.detach().cpu().numpy(), iteration)
+                        #self.writer.add_scalar("loss/sal_loss", sal_loss.detach().cpu().numpy(), iteration)
                         self.writer.add_scalar("loss/nps_loss", nps_loss.detach().cpu().numpy(), iteration)
                         self.writer.add_scalar("loss/tv_loss", tv_loss.detach().cpu().numpy(), iteration)
                         self.writer.add_scalar("misc/epoch", epoch, iteration)
                         self.writer.add_scalar("misc/learning_rate", optimizer.param_groups[0]["lr"], iteration)
                         self.writer.add_image("patch", adv_patch, iteration)
                     if i_batch + 1 < len(self.train_loader):
-                        del adv_batch_t, output, max_prob, det_loss, p_img_batch, tv_loss, loss, nps_loss, sal_loss
+                        del adv_batch_t, output, max_prob, det_loss, p_img_batch, tv_loss, loss, nps_loss#, sal_loss
             ep_loss = ep_loss / len(self.train_loader)
             scheduler.step(ep_loss)
 
@@ -246,7 +235,7 @@ class PatchTrainer:
             if epoch % self.cfg.patch_save_epoch_freq == 0:
                 img = T.ToPILImage('RGB')(adv_patch)
                 img.save(out_patch_path)
-                del adv_batch_t, output, max_prob, det_loss, p_img_batch, nps_loss, tv_loss, loss, sal_loss
+                del adv_batch_t, output, max_prob, det_loss, p_img_batch, nps_loss, tv_loss, loss#, sal_loss
 
             #validation function
             #if all([self.cfg.val_image_dir, self.cfg.val_epoch_freq]) and epoch % self.cfg.val_epoch_freq == 0:

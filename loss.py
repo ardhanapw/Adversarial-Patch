@@ -23,7 +23,7 @@ class MaxProbExtractor(nn.Module):
         """https://github.com/ultralytics/ultralytics/issues/828"""
         #print(output.shape, (4 + self.config.n_classes))
         
-        #If YOLOv8 (shaped [batch, 4 + num_cls, -1])
+        #If YOLOv8 and YOLOv11 (shaped [batch, 4 + num_cls, -1])
         assert output.size(1) == (4 + self.config.n_classes)
         output = output.permute(0, 2, 1)
         
