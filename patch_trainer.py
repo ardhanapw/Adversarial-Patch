@@ -15,7 +15,7 @@ from torch.cuda.amp import autocast
 from tqdm import tqdm
 
 from easydict import EasyDict
-from patch import PatchTransformer, PatchApplier
+from patch import PatchTransformerNew, PatchApplier
 from loss import MaxProbExtractor, SaliencyLoss, NPSLoss, TotalVariationLoss
 from parser import load_config_object, get_argparser
 from dataset import YOLODataset
@@ -46,8 +46,11 @@ class PatchTrainer:
         #model = DetectMultiBackend(cfg.weights_file, device=self.device, dnn=False, data=None, fp16=False)
         self.model = self.model_wrapper.model.eval()
         
-        self.patch_transformer = PatchTransformer(
-            cfg.target_size_frac, cfg.mul_gau_mean, cfg.mul_gau_std, cfg.x_off_loc, cfg.y_off_loc, self.device
+        #self.patch_transformer = PatchTransformer(
+        #    cfg.target_size_frac, cfg.mul_gau_mean, cfg.mul_gau_std, cfg.x_off_loc, cfg.y_off_loc, self.device
+        #).to(self.device)
+        self.patch_transformer = PatchTransformerNew(
+            cfg.target_size_frac, cfg.mul_gau_mean, cfg.mul_gau_std, cfg.x_proj_coef, cfg.y_proj_coef, self.device
         ).to(self.device)
         self.patch_applier = PatchApplier(cfg.patch_alpha).to(self.device)
         self.prob_extractor = MaxProbExtractor(cfg).to(self.device)
@@ -85,7 +88,7 @@ class PatchTrainer:
                 max_labels=cfg.max_labels,
                 model_in_sz=cfg.model_in_sz,
                 transform=transforms,
-                filter_class_ids=cfg.objective_class_id,
+                filter_class_ids=cfg.objective_class_id_dataset,
                 min_pixel_area=cfg.min_pixel_area,
                 shuffle=True,
             ),
@@ -195,7 +198,7 @@ class PatchTrainer:
                         ]
                         patched = T.ToPILImage()(patched.detach().cpu())
                         patched.save(os.path.join(self.cfg.log_dir, "train_patch_applied_imgs", f"with_patch_{i_batch}.jpg"))
-
+                    #print("before prob")
                     with autocast() if self.cfg.use_amp else nullcontext():
                         output = self.model(p_img_batch)[0]
                         max_prob = self.prob_extractor(output)
@@ -246,9 +249,9 @@ class PatchTrainer:
                 del adv_batch_t, output, max_prob, det_loss, p_img_batch, nps_loss, tv_loss, loss, sal_loss
 
             #validation function
-            if all([self.cfg.val_image_dir, self.cfg.val_epoch_freq]) and epoch % self.cfg.val_epoch_freq == 0:
-                with torch.no_grad():
-                    self.val(epoch, out_patch_path)
+            #if all([self.cfg.val_image_dir, self.cfg.val_epoch_freq]) and epoch % self.cfg.val_epoch_freq == 0:
+            #    with torch.no_grad():
+            #        self.val(epoch, out_patch_path)
     
         print(f"Total training time {time.time() - start_time:.2f}s")
 
@@ -268,14 +271,14 @@ class PatchTrainer:
         img_paths = glob.glob(os.path.join(self.cfg.val_image_dir, "*"))
         img_paths = sorted([p for p in img_paths if os.path.splitext(p)[-1] in {".png", ".jpg", ".jpeg"}])
 
-        train_t_size_frac = self.patch_transformer.t_size_frac
-        self.patch_transformer.t_size_frac = [0.3, 0.3]  # use a frac of 0.3 for validation
+        #train_t_size_frac = self.patch_transformer.t_size_frac
+        #self.patch_transformer.t_size_frac = [0.3, 0.3]  # use a frac of 0.3 for validation
         # to calc confusion matrixes and attack success rates later
         all_labels = []
         all_patch_preds = []
 
         m_h, m_w = self.cfg.model_in_sz
-        cls_id = self.cfg.objective_class_id
+        cls_id = self.cfg.objective_class_id_model
         zeros_tensor = torch.zeros([1, 5]).to(self.device)
         #### iterate through all images ####
         for imgfile in tqdm(img_paths, desc=f"Running val epoch {epoch}"):
@@ -287,12 +290,9 @@ class PatchTrainer:
             #######################################
             # generate labels to use later for patched image
             padded_img_tensor = T.ToTensor()(padded_img).unsqueeze(0).to(self.device)
-            pred = self.model(padded_img_tensor)[0]
-            #print(pred[0].boxes, pred[0].boxes.cls, pred[0].boxes.xyxy)
-            pred = pred.permute(0, 2, 1)
+            pred = self.model_wrapper(padded_img_tensor)[0]
+            boxes = pred.boxes.data
             
-    
-            boxes = non_max_suppression(pred, conf_thresh, nms_thresh)[0]
             # if doing targeted class performance check, ignore non target classes
             if cls_id is not None:
                 boxes = boxes[boxes[:, -1] == cls_id]
@@ -338,11 +338,9 @@ class PatchTrainer:
                 )
                 p_tensor_batch = self.patch_applier(img_fake_batch, adv_batch_t)
 
-            pred = self.model(p_tensor_batch)[0]
-            #print(pred[0][..., 4])
-            pred = pred.permute(0, 2, 1)
-            boxes = non_max_suppression(pred, conf_thresh, nms_thresh)[0]
-            #print(pred[0].shape, boxes.shape)
+            pred = self.model_wrapper(p_tensor_batch)[0]
+            boxes = pred.boxes.data
+
             # if doing targeted class performance check, ignore non target classes
             if cls_id is not None:
                 boxes = boxes[boxes[:, -1] == cls_id]
@@ -361,6 +359,10 @@ class PatchTrainer:
         all_labels = torch.cat(all_labels)[:, [5, 0, 1, 2, 3]]
         # patch and noise labels are of shapes (Array[N, 6]), x1, y1, x2, y2, conf, class
         all_patch_preds = torch.cat(all_patch_preds)
+        print(all_labels.shape, all_patch_preds.shape)
+        
+        #Legacy ASR is problematic
+        """
         asr_s, asr_m, asr_l, asr_a = PatchTester.calc_asr(
             all_labels, all_patch_preds, class_list=self.cfg.class_list, cls_id=cls_id
         )
@@ -369,14 +371,15 @@ class PatchTrainer:
         print(
             f"\tASR@thres={conf_thresh}: asr_s={asr_s:.3f},  asr_m={asr_m:.3f},  asr_l={asr_l:.3f},  asr_a={asr_a:.3f}"
         )
+        """
 
-        self.writer.add_scalar("val_asr_per_epoch/area_small", asr_s, epoch)
-        self.writer.add_scalar("val_asr_per_epoch/area_medium", asr_m, epoch)
-        self.writer.add_scalar("val_asr_per_epoch/area_large", asr_l, epoch)
-        self.writer.add_scalar("val_asr_per_epoch/area_all", asr_a, epoch)
+        #self.writer.add_scalar("val_asr_per_epoch/area_small", asr_s, epoch)
+        #self.writer.add_scalar("val_asr_per_epoch/area_medium", asr_m, epoch)
+        #self.writer.add_scalar("val_asr_per_epoch/area_large", asr_l, epoch)
+        #self.writer.add_scalar("val_asr_per_epoch/area_all", asr_a, epoch)
         del adv_batch_t, padded_img_tensor, p_tensor_batch
         torch.cuda.empty_cache()
-        self.patch_transformer.t_size_frac = train_t_size_frac
+        #self.patch_transformer.t_size_frac = train_t_size_frac
     
 
 def main():

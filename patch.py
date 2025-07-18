@@ -211,7 +211,7 @@ class PatchTransformerNew(nn.Module):
         sin = torch.sin(angle)
         cos = torch.cos(angle)
         
-        print(target_x, target_y)
+        #print(target_x, target_y)
         target_width  = lab_batch_scaled[:, :, 3] * 0.6 # frac_x
         target_height = lab_batch_scaled[:, :, 4] * 0.15 # frac_y
 

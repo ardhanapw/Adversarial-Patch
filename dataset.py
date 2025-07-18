@@ -20,8 +20,6 @@ class YOLODataset(Dataset):
         label_dir: Directory containing the labels of the YOLO format dataset.
         max_labels: max number labels to use for each image
         model_in_sz: model input image size (height, width)
-        use_even_odd_images: optionally load a data subset based on the last numeric char of the img filename [all, even, odd]
-        filter_class_id: np.ndarray class id(s) to get. Set None to get all classes
         min_pixel_area: min pixel area below which all boxes are filtered out. (Out of the model in size area)
         shuffle: Whether or not to shuffle the dataset.
     """
@@ -32,23 +30,16 @@ class YOLODataset(Dataset):
         label_dir: str,
         max_labels: int,
         model_in_sz: Tuple[int, int],
-        use_even_odd_images: str = "all",
         transform: Optional[torch.nn.Module] = None,
         filter_class_ids: Optional[np.array] = None,
         min_pixel_area: Optional[int] = None,
         shuffle: bool = True,
     ):
-        assert use_even_odd_images in {"all", "even", "odd"}, "use_even_odd param can only be all, even or odd"
         image_paths = glob.glob(osp.join(image_dir, "*"))
         label_paths = glob.glob(osp.join(label_dir, "*"))
         image_paths = sorted([p for p in image_paths if osp.splitext(p)[-1] in IMG_EXTNS])
         label_paths = sorted([p for p in label_paths if osp.splitext(p)[-1] in {".txt"}])
 
-        # if use_even_odd_images is set, use images with even/odd numbers in the last char of their filenames
-        if use_even_odd_images in {"even", "odd"}:
-            rem = 0 if use_even_odd_images == "even" else 1
-            image_paths = [p for p in image_paths if int(osp.splitext(p)[0][-1]) % 2 == rem]
-            label_paths = [p for p in label_paths if int(osp.splitext(p)[0][-1]) % 2 == rem]
         assert len(image_paths) == len(label_paths), "Number of images and number of labels don't match"
         # all corresponding image and labels must exist
         for img, lab in zip(image_paths, label_paths):
@@ -81,6 +72,10 @@ class YOLODataset(Dataset):
         if self.filter_class_ids is not None:
             label = label[np.isin(label[:, 0], self.filter_class_ids)]
             label = label if len(label) > 0 else np.zeros([1, 5])
+            
+        #filter label by only including label with y < 0.75 (ignore entering or exiting vehicle)
+        y_thresh = 0.75
+        label = label[label[:, 2] < y_thresh] if np.any(label[:, 2] < y_thresh) else np.zeros([1, 5])
 
         label = torch.from_numpy(label).float()
         image, label = self.pad_and_scale(image, label)

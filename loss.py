@@ -21,16 +21,22 @@ class MaxProbExtractor(nn.Module):
         """Output must be of the shape [batch, -1, 5 + num_cls]"""
         """YOLOv8 outputs [batch, 4 + num_cls, -1] actually"""
         """https://github.com/ultralytics/ultralytics/issues/828"""
+        #print(output.shape, (4 + self.config.n_classes))
         
+        #If YOLOv8 (shaped [batch, 4 + num_cls, -1])
         assert output.size(1) == (4 + self.config.n_classes)
-        
         output = output.permute(0, 2, 1)
+        
+        #If DETR (shaped [batch, 300, 4 + num_cls])
+        #print(output.shape)
+        #assert output.size(2) == (4 + self.config.n_classes)
+        
         class_confs = output[..., 4:]
 
         #if self.config.objective_class_id is not None:
         #    class_confs = class_confs[..., self.config.objective_class_id]
-        if self.config.objective_class_id is not None:
-            class_confs = class_confs[..., 2] #try for MS COCO 'car'
+        if self.config.objective_class_id_model is not None:
+            class_confs = class_confs[..., self.config.objective_class_id_model] #try for MS COCO 'car'
         else:
             class_confs, _ = class_confs.max(dim=-1)
 
