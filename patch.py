@@ -294,7 +294,7 @@ class PatchTransformer(nn.Module):
         # add gaussian noise to reduce contrast with a stohastic process -> from shrestha
         # shrestha patch printability cannot be confirmed
         # lanjut metode thys dkk.
-        """
+        
         p_c, p_h, p_w = adv_patch.shape
         if use_mul_add_gau:
             mul_gau = torch.normal(
@@ -305,7 +305,7 @@ class PatchTransformer(nn.Module):
             )
             add_gau = torch.normal(0, 0.001, (p_c, p_h, p_w), device=self.dev)
             adv_patch = adv_patch * mul_gau + add_gau
-        """
+        
         adv_patch = self.medianpooler(adv_patch.unsqueeze(0))
         m_h, m_w = model_in_sz
         # Determine size of padding
