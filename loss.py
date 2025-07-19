@@ -28,7 +28,7 @@ class MaxProbExtractor(nn.Module):
             assert output.size(1) == (4 + self.config.n_classes)
             output = output.permute(0, 2, 1)
         elif self.config.architecture_type in ('DETR', 'RTDETR', 'detr', 'rtdetr', 'RT-DETR', 'rt-detr'):
-            assert output.size(2) == (self.config.n_classes)
+            assert output.size(2) == (4 + self.config.n_classes)
         
         #If DETR (shaped [batch, 300, num_cls])
         #print(output.shape)
