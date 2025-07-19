@@ -24,12 +24,15 @@ class MaxProbExtractor(nn.Module):
         #print(output.shape, (4 + self.config.n_classes))
         
         #If YOLOv8 and YOLOv11 (shaped [batch, 4 + num_cls, -1])
-        assert output.size(1) == (4 + self.config.n_classes)
-        output = output.permute(0, 2, 1)
+        if self.config.architecture_type in ('YOLO', 'yolo'):
+            assert output.size(1) == (4 + self.config.n_classes)
+            output = output.permute(0, 2, 1)
+        elif self.config.architecture_type in ('DETR', 'RTDETR', 'detr', 'rtdetr', 'RT-DETR', 'rt-detr'):
+            assert output.size(2) == (self.config.n_classes)
         
-        #If DETR (shaped [batch, 300, 4 + num_cls])
+        #If DETR (shaped [batch, 300, num_cls])
         #print(output.shape)
-        #assert output.size(2) == (4 + self.config.n_classes)
+        #assert output.size(2) == (self.config.n_classes)
         
         class_confs = output[..., 4:]
 
